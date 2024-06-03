@@ -141,7 +141,7 @@ class Image2Video():
 
 def main():
     parser = ArgumentParser()
-    parser.add_argument('--local_rank', type=int, default=0)
+    parser.add_argument('--local_rank', '--local-rank', type=int, default=0)
     parser.add_argument('--world_size', type=int, default=1)
     args = parser.parse_args()
 
