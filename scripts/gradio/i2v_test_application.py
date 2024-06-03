@@ -11,21 +11,24 @@ from einops import repeat
 import torchvision.transforms as transforms
 from pytorch_lightning import seed_everything
 from einops import rearrange
+from argparse import ArgumentParser
 
 class Image2Video():
-    def __init__(self, result_dir='./tmp/', gpu_num=2, resolution='256_256') -> None:
-        self.resolution = (int(resolution.split('_')[0]), int(resolution.split('_')[1])) # hw
+    def __init__(self, result_dir='./tmp/', gpu_num=2, resolution='256_256', local_rank=0, world_size=1) -> None:
+        self.local_rank = local_rank
+        self.world_size = world_size
+        self.resolution = (int(resolution.split('_')[0]), int(resolution.split('_')[1]))  # hw
         self.download_model()
 
         self.result_dir = result_dir
-        if not os.path.exists(self.result_dir):
+        if self.local_rank == 0 and not os.path.exists(self.result_dir):
             os.mkdir(self.result_dir)
         ckpt_path = 'checkpoints/tooncrafter_' + resolution.split('_')[1] + '_interp_v1/model.ckpt'
         config_file = 'configs/inference_' + resolution.split('_')[1] + '_v1.0.yaml'
         config = OmegaConf.load(config_file)
         model_config = config.pop("model", OmegaConf.create())
-        model_config['params']['unet_config']['params']['use_checkpoint'] = False   
-        
+        model_config['params']['unet_config']['params']['use_checkpoint'] = False
+
         model = instantiate_from_config(model_config)
         assert os.path.exists(ckpt_path), "Error: checkpoint Not Found!"
         model = load_model_checkpoint(model, ckpt_path)
@@ -36,8 +39,8 @@ class Image2Video():
         self.save_fps = 8
 
     def setup_ddp(self):
-        dist.init_process_group(backend='nccl')
-        self.model = DDP(self.model.cuda(), device_ids=[dist.get_rank()])
+        dist.init_process_group(backend='nccl', init_method='env://', rank=self.local_rank, world_size=self.world_size)
+        self.model = DDP(self.model.cuda(self.local_rank), device_ids=[self.local_rank])
 
     def cleanup_ddp(self):
         dist.destroy_process_group()
@@ -53,7 +56,7 @@ class Image2Video():
         start = time.time()
 
         if steps > 60:
-            steps = 60 
+            steps = 60
         model = self.model
 
         batch_size = 1
@@ -68,15 +71,15 @@ class Image2Video():
             img_tensor = torch.from_numpy(image).permute(2, 0, 1).float().to(model.device)
             img_tensor = (img_tensor / 255. - 0.5) * 2
 
-            image_tensor_resized = transform(img_tensor) # 3,h,w
-            videos = image_tensor_resized.unsqueeze(0).unsqueeze(2) # bc1hw
+            image_tensor_resized = transform(img_tensor)  # 3,h,w
+            videos = image_tensor_resized.unsqueeze(0).unsqueeze(2)  # bc1hw
             videos = repeat(videos, 'b c t h w -> b c (repeat t) h w', repeat=frames // 2)
 
             if image2 is not None:
                 img_tensor2 = torch.from_numpy(image2).permute(2, 0, 1).float().to(model.device)
                 img_tensor2 = (img_tensor2 / 255. - 0.5) * 2
-                image_tensor_resized2 = transform(img_tensor2) # 3,h,w
-                videos2 = image_tensor_resized2.unsqueeze(0).unsqueeze(2) # bchw
+                image_tensor_resized2 = transform(img_tensor2)  # 3,h,w
+                videos2 = image_tensor_resized2.unsqueeze(0).unsqueeze(2)  # bchw
                 videos2 = repeat(videos2, 'b c t h w -> b c (repeat t) h w', repeat=frames // 2)
                 videos = torch.cat([videos, videos2], dim=2)
 
@@ -86,7 +89,7 @@ class Image2Video():
             img_tensor_repeat[:, :, :1, :, :] = z[:, :, :1, :, :]
             img_tensor_repeat[:, :, -1:, :, :] = z[:, :, -1:, :, :]
 
-            cond_images = model.module.embedder(img_tensor.unsqueeze(0)) # blc
+            cond_images = model.module.embedder(img_tensor.unsqueeze(0))  # blc
             img_emb = model.module.image_proj_model(cond_images)
 
             imtext_cond = torch.cat([text_emb, img_emb], dim=1)
@@ -105,8 +108,9 @@ class Image2Video():
             if len(prompt_str) == 0:
                 prompt_str = 'empty_prompt'
 
-        save_videos(batch_samples, self.result_dir, filenames=[prompt_str], fps=self.save_fps)
-        print(f"Saved in {prompt_str}. Time used: {(time.time() - start):.2f} seconds")
+        if self.local_rank == 0:
+            save_videos(batch_samples, self.result_dir, filenames=[prompt_str], fps=self.save_fps)
+            print(f"Saved in {prompt_str}. Time used: {(time.time() - start):.2f} seconds")
         return os.path.join(self.result_dir, f"{prompt_str}.mp4")
 
     def download_model(self):
@@ -134,12 +138,19 @@ class Image2Video():
         z = rearrange(z, '(b t) c h w -> b c t h w', b=b, t=t)
         return z, hidden_states_first_last
 
+
 def main():
-    i2v = Image2Video(gpu_num=2)
+    parser = ArgumentParser()
+    parser.add_argument('--local_rank', type=int, default=0)
+    parser.add_argument('--world_size', type=int, default=1)
+    args = parser.parse_args()
+
+    i2v = Image2Video(gpu_num=args.world_size, local_rank=args.local_rank, world_size=args.world_size)
     i2v.setup_ddp()
     video_path = i2v.get_image('prompts/art.png', 'man fishing in a boat at sunset')
     i2v.cleanup_ddp()
     print('done', video_path)
+
 
 if __name__ == '__main__':
     main()
