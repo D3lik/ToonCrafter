@@ -32,7 +32,7 @@ class Image2Video():
             model = load_model_checkpoint(model, ckpt_path)
             model.eval()
             model_list.append(model)
-        self.model_list = model_list
+        self.model = torch.nn.DataParallel(model_list[0])
         self.save_fps = 8
 
     def get_image(self, image, prompt, steps=50, cfg_scale=7.5, eta=1.0, fs=3, seed=123, image2=None, worker=0):
@@ -47,7 +47,7 @@ class Image2Video():
         gpu_id=0
         if steps > 60:
             steps = 60 
-        model = self.model_list[gpu_id]
+        model = self.model
         model = model.cuda()
         batch_size=1
         channels = model.model.diffusion_model.out_channels
@@ -127,7 +127,7 @@ class Image2Video():
     def get_latent_z_with_hidden_states(self, model, videos):
         b, c, t, h, w = videos.shape
         x = rearrange(videos, 'b c t h w -> (b t) c h w')
-        encoder_posterior, hidden_states = model.first_stage_model.encode(x, return_hidden_states=True)
+        encoder_posterior, hidden_states = model.module.first_stage_model.encode(x, return_hidden_states=True)
 
         hidden_states_first_last = []
         ### use only the first and last hidden states
