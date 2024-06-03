@@ -1,7 +1,9 @@
 import os
 import time
-from omegaconf import OmegaConf
 import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from omegaconf import OmegaConf
 from scripts.evaluation.funcs import load_model_checkpoint, save_videos, batch_ddim_sampling, get_latent_z
 from utils.utils import instantiate_from_config
 from huggingface_hub import hf_hub_download
@@ -29,9 +31,16 @@ class Image2Video():
         model = load_model_checkpoint(model, ckpt_path)
         model.eval()
 
-        self.model = torch.nn.DataParallel(model) if gpu_num > 1 else model
-        self.model = self.model.cuda()
+        self.model = model
+        self.gpu_num = gpu_num
         self.save_fps = 8
+
+    def setup_ddp(self):
+        dist.init_process_group(backend='nccl')
+        self.model = DDP(self.model.cuda(), device_ids=[dist.get_rank()])
+
+    def cleanup_ddp(self):
+        dist.destroy_process_group()
 
     def get_image(self, image, prompt, steps=50, cfg_scale=7.5, eta=1.0, fs=3, seed=123, image2=None):
         seed_everything(seed)
@@ -125,7 +134,12 @@ class Image2Video():
         z = rearrange(z, '(b t) c h w -> b c t h w', b=b, t=t)
         return z, hidden_states_first_last
 
-if __name__ == '__main__':
+def main():
     i2v = Image2Video(gpu_num=2)
+    i2v.setup_ddp()
     video_path = i2v.get_image('prompts/art.png', 'man fishing in a boat at sunset')
+    i2v.cleanup_ddp()
     print('done', video_path)
+
+if __name__ == '__main__':
+    main()
