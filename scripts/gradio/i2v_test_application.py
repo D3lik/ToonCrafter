@@ -11,7 +11,7 @@ from einops import repeat
 import torchvision.transforms as transforms
 from pytorch_lightning import seed_everything
 from einops import rearrange
-from argparse import ArgumentParser
+import argparse
 
 class Image2Video():
     def __init__(self, result_dir='./tmp/', gpu_num=2, resolution='256_256', local_rank=0, world_size=1) -> None:
@@ -138,19 +138,15 @@ class Image2Video():
         z = rearrange(z, '(b t) c h w -> b c t h w', b=b, t=t)
         return z, hidden_states_first_last
 
-
 def main():
-    parser = ArgumentParser()
-    parser.add_argument('--local_rank', '--local-rank', type=int, default=0)
-    parser.add_argument('--world_size', type=int, default=1)
-    args = parser.parse_args()
+    local_rank = int(os.getenv('LOCAL_RANK', 0))
+    world_size = int(os.getenv('WORLD_SIZE', 1))
 
-    i2v = Image2Video(gpu_num=args.world_size, local_rank=args.local_rank, world_size=args.world_size)
+    i2v = Image2Video(gpu_num=world_size, local_rank=local_rank, world_size=world_size)
     i2v.setup_ddp()
     video_path = i2v.get_image('prompts/art.png', 'man fishing in a boat at sunset')
     i2v.cleanup_ddp()
     print('done', video_path)
-
 
 if __name__ == '__main__':
     main()
