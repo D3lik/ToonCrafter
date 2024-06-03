@@ -109,7 +109,7 @@ class Image2Video():
             if len(prompt_str) == 0:
                 prompt_str = 'empty_prompt'
 
-        save_videos(batch_samples, self.result_dir, filenames=[prompt_str], fps=self.save_fps)
+        save_videos(batch_samples, self.result_dir, filenames=[prompt_str], fps=self.save_fps, worker=0)
         print(f"Saved in {prompt_str}. Time used: {(time.time() - start):.2f} seconds")
         model = model.cpu()
         return os.path.join(self.result_dir, f"{prompt_str}.mp4")
