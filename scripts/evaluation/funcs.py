@@ -216,7 +216,7 @@ def load_image_batch(filepath_list, image_size=(256,256)):
     return torch.stack(batch_tensor, dim=0)
 
 
-def save_videos(batch_tensors, savedir, filenames, fps=10):
+def save_videos(batch_tensors, savedir, filenames, fps=10, worker=0):
     # b,samples,c,t,h,w
     n_samples = batch_tensors.shape[1]
     for idx, vid_tensor in enumerate(batch_tensors):
