@@ -11,7 +11,6 @@ from einops import repeat
 import torchvision.transforms as transforms
 from pytorch_lightning import seed_everything
 from einops import rearrange
-import argparse
 
 class Image2Video():
     def __init__(self, result_dir='./tmp/', gpu_num=2, resolution='256_256', local_rank=0, world_size=1) -> None:
@@ -22,12 +21,12 @@ class Image2Video():
 
         self.result_dir = result_dir
         if self.local_rank == 0 and not os.path.exists(self.result_dir):
-            os.mkdir(self.result_dir)
+            os.makedirs(self.result_dir, exist_ok=True)  # Use os.makedirs with exist_ok=True to avoid the error
         ckpt_path = 'checkpoints/tooncrafter_' + resolution.split('_')[1] + '_interp_v1/model.ckpt'
         config_file = 'configs/inference_' + resolution.split('_')[1] + '_v1.0.yaml'
         config = OmegaConf.load(config_file)
         model_config = config.pop("model", OmegaConf.create())
-        model_config['params']['unet_config']['params']['use_checkpoint'] = False
+        model_config['params']['unet_config']['params']['use_checkpoint'] = True  # Enable gradient checkpointing
 
         model = instantiate_from_config(model_config)
         assert os.path.exists(ckpt_path), "Error: checkpoint Not Found!"
@@ -117,7 +116,7 @@ class Image2Video():
         REPO_ID = 'Doubiiu/ToonCrafter'
         filename_list = ['model.ckpt']
         if not os.path.exists('./checkpoints/tooncrafter_' + str(self.resolution[1]) + '_interp_v1/'):
-            os.makedirs('./checkpoints/tooncrafter_' + str(self.resolution[1]) + '_interp_v1/')
+            os.makedirs('./checkpoints/tooncrafter_' + str(self.resolution[1]) + '_interp_v1/', exist_ok=True)  # Use exist_ok=True here as well
         for filename in filename_list:
             local_file = os.path.join('./checkpoints/tooncrafter_' + str(self.resolution[1]) + '_interp_v1/', filename)
             if not os.path.exists(local_file):
